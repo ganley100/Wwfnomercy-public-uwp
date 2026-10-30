@@ -1,3 +1,21 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 717180a..f8fd207 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -284,7 +284,12 @@ endfunction()
+ # Point cmake at src/contrib/mupen64plus-win32-deps/SDL2-2.26.3 for SDL2 on windows, look for an installed package on other systems
+ if (WIN32)
+     set(SDL2_INCLUDE_DIRS "${PROJECT_SOURCE_DIR}/src/contrib/mupen64plus-win32-deps/SDL2-2.26.3/include")
+-    set(SDL2_LIBRARIES "SDL2" "SDL2main")
++    if (NMR_UWP)
++        # [uwp] The app links a UWP build of SDL2, which has no SDL2main (the app's entry point calls SDL_WinRTRunApp).
++        set(SDL2_LIBRARIES "SDL2")
++    else()
++        set(SDL2_LIBRARIES "SDL2" "SDL2main")
++    endif()
+     link_directories("${PROJECT_SOURCE_DIR}/src/contrib/mupen64plus-win32-deps/SDL2-2.26.3/lib/x64")
+ else()
+     find_package(SDL2 REQUIRED)
 diff --git a/src/common/rt64_user_configuration.cpp b/src/common/rt64_user_configuration.cpp
 index cc35442..1bcb585 100644
 --- a/src/common/rt64_user_configuration.cpp

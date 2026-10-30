@@ -17,11 +17,6 @@ extern "C" void recomp_entrypoint(uint8_t* rdram, recomp_context* ctx) {
     ULTRAMODERN_QUICK_EXIT();
 }
 
-// Called by src/game/recomp_api.cpp's osDriveRomInit wrapper, which only the game code reaches.
-extern "C" void osDriveRomInit_recomp(uint8_t* rdram, recomp_context* ctx) {
-    (void)rdram; (void)ctx;
-}
-
 RspExitReason nomercy_audio_ucode(uint8_t* rdram, uint32_t ucode_addr) {
     (void)rdram; (void)ucode_addr;
     return RspExitReason::Broke;
