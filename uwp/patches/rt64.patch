@@ -1,8 +1,23 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 717180a..f8fd207 100644
+index 717180a..f3a737b 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -284,7 +284,12 @@ endfunction()
+@@ -109,6 +109,14 @@ set (DXC_VS_OPTS "${DXC_COMMON_OPTS}" "-E" "VSMain" "-T vs_6_3" "-fvk-invert-y")
+ set (DXC_CS_OPTS "${DXC_COMMON_OPTS}" "-E" "CSMain" "-T cs_6_3")
+ set (DXC_GS_OPTS "${DXC_COMMON_OPTS}" "-E" "GSMain" "-T gs_6_3")
+ set (DXC_RT_OPTS "${DXC_COMMON_OPTS}" "-D" "RT_SHADER" "-T" "lib_6_3" "-fspv-target-env=vulkan1.1spirv1.4" "-fspv-extension=SPV_KHR_ray_tracing" "-fspv-extension=SPV_EXT_descriptor_indexing")
++if (NMR_UWP)
++    # [uwp] Shader model 6.0 for the precompiled shaders, so they run on any D3D12 device that takes DXIL (an Xbox One's
++    # D3D12 rejected a 6.3 pipeline; all of these shaders compile for 6.0 as they are). The 6.3 libraries are only used
++    # by runtime shader compilation, which UWP builds leave out.
++    foreach(opts DXC_PS_OPTS DXC_VS_OPTS DXC_CS_OPTS DXC_GS_OPTS)
++        string(REPLACE "_6_3" "_6_0" ${opts} "${${opts}}")
++    endforeach()
++endif()
+ 
+ function(build_shader_spirv_impl TARGETOBJ FILENAME TARGET_NAME OUTNAME)
+     add_custom_command(OUTPUT ${OUTNAME}.spv
+@@ -284,7 +292,12 @@ endfunction()
  # Point cmake at src/contrib/mupen64plus-win32-deps/SDL2-2.26.3 for SDL2 on windows, look for an installed package on other systems
  if (WIN32)
      set(SDL2_INCLUDE_DIRS "${PROJECT_SOURCE_DIR}/src/contrib/mupen64plus-win32-deps/SDL2-2.26.3/include")

@@ -1,5 +1,5 @@
 diff --git a/plume_d3d12.cpp b/plume_d3d12.cpp
-index 7a7cd5c..430431a 100644
+index 7a7cd5c..df8a001 100644
 --- a/plume_d3d12.cpp
 +++ b/plume_d3d12.cpp
 @@ -14,6 +14,11 @@
@@ -54,3 +54,65 @@ index 7a7cd5c..430431a 100644
      }
  
      void D3D12SwapChain::setTextures() {
+@@ -2169,11 +2189,18 @@ namespace plume {
+         switch (interfacePipeline->type) {
+         case D3D12Pipeline::Type::Compute: {
+             const D3D12ComputePipeline *computePipeline = static_cast<const D3D12ComputePipeline *>(interfacePipeline);
++            if (computePipeline->d3d == nullptr) {
++                // A pipeline the device rejected (logged when it was created): D3D12 would dereference the null PSO.
++                break;
++            }
+             d3d->SetPipelineState(computePipeline->d3d);
+             break;
+         }
+         case D3D12Pipeline::Type::Graphics: {
+             const D3D12GraphicsPipeline *graphicsPipeline = static_cast<const D3D12GraphicsPipeline *>(interfacePipeline);
++            if (graphicsPipeline->d3d == nullptr) {
++                break;
++            }
+             d3d->SetPipelineState(graphicsPipeline->d3d);
+             activeGraphicsPipeline = graphicsPipeline;
+             break;
+@@ -3223,7 +3250,10 @@ namespace plume {
+         psoDesc.pRootSignature = rootSignature->rootSignature;
+         psoDesc.CS.pShaderBytecode = computeShader->d3d.data();
+         psoDesc.CS.BytecodeLength = computeShader->d3d.size();
+-        device->d3d->CreateComputePipelineState(&psoDesc, IID_PPV_ARGS(&d3d));
++        HRESULT res = device->d3d->CreateComputePipelineState(&psoDesc, IID_PPV_ARGS(&d3d));
++        if (FAILED(res)) {
++            fprintf(stderr, "[plumed3d12] CreateComputePipelineState failed with error code 0x%lX.\n", (unsigned long)res);
++        }
+     }
+ 
+     D3D12ComputePipeline::~D3D12ComputePipeline() {
+@@ -3368,7 +3398,10 @@ namespace plume {
+ 
+         psoDesc.InputLayout = { inputElements.data(), UINT(inputElements.size()) };
+ 
+-        device->d3d->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&d3d));
++        HRESULT res = device->d3d->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&d3d));
++        if (FAILED(res)) {
++            fprintf(stderr, "[plumed3d12] CreateGraphicsPipelineState failed with error code 0x%lX.\n", (unsigned long)res);
++        }
+     }
+ 
+     D3D12GraphicsPipeline::~D3D12GraphicsPipeline() {
+@@ -3854,6 +3887,18 @@ namespace plume {
+ #       else
+             const D3D_SHADER_MODEL supportedShaderModels[] = { D3D_SHADER_MODEL_6_0 };
+ #       endif
++            {
++                // The check below asks for 6.0 at most, so it can't tell what the device really supports. Ask from the
++                // top down (a runtime that doesn't know a shader model answers E_INVALIDARG) and log the answer.
++                D3D12_FEATURE_DATA_SHADER_MODEL highest = {};
++                for (int sm = 0x69; sm >= 0x60; sm--) {
++                    highest.HighestShaderModel = D3D_SHADER_MODEL(sm);
++                    if (SUCCEEDED(deviceOption->CheckFeatureSupport(D3D12_FEATURE_SHADER_MODEL, &highest, sizeof(highest)))) {
++                        fprintf(stderr, "[d3d12dev]   highest shader model %d.%d\n", int(highest.HighestShaderModel) >> 4, int(highest.HighestShaderModel) & 0xF);
++                        break;
++                    }
++                }
++            }
+             D3D12_FEATURE_DATA_SHADER_MODEL dataShaderModel = {};
+             for (uint32_t i = 0; i < _countof(supportedShaderModels); i++) {
+                 dataShaderModel.HighestShaderModel = supportedShaderModels[i];

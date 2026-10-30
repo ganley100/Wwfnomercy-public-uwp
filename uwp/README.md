@@ -88,9 +88,9 @@ Logs (`NoMercyRecompiled.log` = stderr, `NoMercyRecompiled.out.log` = stdout), s
 
 These need real hardware to answer:
 
-- **Shader model.** RT64's precompiled shaders target SM 6.3 (`lib_6_3`/`vs_6_3`/`ps_6_3`) and plume asks D3D12
-  for SM 6.0+. Whether an Xbox One's UWP D3D12 device reports that is the make-or-break question. If device creation
-  fails, the log says so (`[wcw] create_render_context`).
+- **Shader model.** RT64's shaders are built for SM 6.0 in UWP builds (6.3 on desktop), because on the console the
+  6.3 pipelines failed to create and the first one bound crashed in D3D12Core. The log prints the device's
+  `highest shader model`, and `[plumed3d12] Create…PipelineState failed` for any pipeline it still rejects.
 - **CPU.** The Xbox One's 1.75 GHz Jaguar cores support SSE4.1, so the build flags are fine, but they're much
   slower than a desktop CPU. Expect to need 30 fps (Settings → Graphics → Framerate) and native-ish resolution.
 - **Memory.** It should fit in a Game's Dev Mode budget. It won't fit as an App (see step 3 above).
