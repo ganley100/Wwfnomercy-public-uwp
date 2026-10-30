@@ -25,7 +25,8 @@ New-Item -ItemType Directory -Path $stage | Out-Null
 # Package layout: the exe and everything it loads relative to its folder (the app's working directory).
 Copy-Item (Join-Path $BuildDir "NoMercyRecompiled.exe"), (Join-Path $BuildDir "SDL2.dll"), (Join-Path $BuildDir "recompcontrollerdb.txt") $stage
 Copy-Item -Recurse (Join-Path $BuildDir "assets") (Join-Path $stage "assets")
-Copy-Item -Recurse (Join-Path $root "uwp\Assets") (Join-Path $stage "Assets")
+# Tiles go in Images\, not Assets\: Windows paths ignore case, so Assets\ would land inside the game's assets\.
+Copy-Item -Recurse (Join-Path $root "uwp\Assets") (Join-Path $stage "Images")
 Copy-Item (Join-Path $root "COPYING") $stage
 (Get-Content -Raw (Join-Path $root "uwp\Package.appxmanifest")).Replace("@VERSION@", $Version).Replace("@PUBLISHER@", $publisher) |
     Set-Content -Encoding UTF8 (Join-Path $stage "AppxManifest.xml")
