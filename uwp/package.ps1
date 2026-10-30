@@ -22,6 +22,23 @@ $stage = Join-Path $OutDir "layout"
 if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
 New-Item -ItemType Directory -Path $stage | Out-Null
 
+# A static import of a DLL the console doesn't have stops the app before any of its code runs (it just closes, with no
+# log), so only the DLLs that are on every Xbox, the app CRT and SDL2 may be imported outright. Everything else must be
+# delay-loaded (CMakeLists.txt, NMR_UWP), where a missing DLL is stubbed and logged instead.
+$exe = Join-Path $BuildDir "NoMercyRecompiled.exe"
+$deps = @()
+$inStatic = $false
+foreach ($line in (dumpbin /nologo /dependents $exe)) {
+    if ($line -match 'Image has the following dependencies') { $inStatic = $true; continue }
+    if ($line -match 'Image has the following delay load dependencies|^\s*Summary') { $inStatic = $false; continue }
+    if ($inStatic -and $line -match '^\s+(\S+\.dll)\s*$') { $deps += $Matches[1] }
+}
+if (-not $deps) { throw "dumpbin /dependents listed no imports for $exe" }
+Write-Host "Static imports: $($deps -join ', ')"
+$allowed = '^(api-ms-win-.+|kernel32|sdl2|d3d12|dxgi|vcruntime140(_1)?_app|msvcp140(_[a-z0-9_]+)?_app)\.dll$'
+$bad = @($deps | Where-Object { $_ -notmatch $allowed })
+if ($bad) { throw "NoMercyRecompiled.exe imports DLLs the Xbox may not have: $($bad -join ', '). Delay-load them (CMakeLists.txt, NMR_UWP)." }
+
 # Package layout: the exe and everything it loads relative to its folder (the app's working directory).
 Copy-Item (Join-Path $BuildDir "NoMercyRecompiled.exe"), (Join-Path $BuildDir "SDL2.dll"), (Join-Path $BuildDir "recompcontrollerdb.txt") $stage
 Copy-Item -Recurse (Join-Path $BuildDir "assets") (Join-Path $stage "assets")

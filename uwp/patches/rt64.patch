@@ -200,3 +200,19 @@ index 5227e08..74bb560 100644
          const HMONITOR monitor = MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST);
          IDXGIFactory1 *factory = nullptr;
          if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory)))) {
+diff --git a/src/render/rt64_raster_shader_cache.cpp b/src/render/rt64_raster_shader_cache.cpp
+index bf7b669..6584478 100644
+--- a/src/render/rt64_raster_shader_cache.cpp
++++ b/src/render/rt64_raster_shader_cache.cpp
+@@ -6,7 +6,11 @@
+ 
+ #include "common/rt64_thread.h"
+ 
++// [uwp] Not on Xbox: optimized shaders are compiled at runtime with dxcompiler.dll, which the package doesn't ship.
++// The precompiled ubershaders cover everything.
++#if !defined(NMR_UWP)
+ #define ENABLE_OPTIMIZED_SHADER_GENERATION
++#endif
+ 
+ namespace RT64 {
+     // RasterShaderCache::CompilationThread

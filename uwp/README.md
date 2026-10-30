@@ -94,6 +94,18 @@ These need real hardware to answer:
 - **CPU.** The Xbox One's 1.75 GHz Jaguar cores support SSE4.1, so the build flags are fine, but they're much
   slower than a desktop CPU. Expect to need 30 fps (Settings → Graphics → Framerate) and native-ish resolution.
 - **Memory.** It should fit in a Game's Dev Mode budget. It won't fit as an App (see step 3 above).
-- **Desktop-only DLLs** (`user32`, `shell32`, `dbghelp`, `winmm`, `winhttp`, `dxcompiler`) are delay-loaded. The
-  UWP code paths shouldn't call them, but if one does on Xbox the app will crash at that point, and the log names
-  the last thing it did.
+- **Desktop-only DLLs** (`user32`, `shell32`, `imm32`, `ole32`, `oleaut32`, `dbghelp`, `winmm`, `winhttp`,
+  `dxcompiler`, `d3dcompiler_47`) are delay-loaded. If one is missing on the console, a call into it returns a stub
+  value instead of crashing, and the log says `[uwp] stubbed <dll>!<function>`. `uwp/package.ps1` refuses an exe that
+  imports anything else outright.
+
+## If it crashes
+
+Open the Device Portal's **File explorer** → `LocalAppData\NoMercyRecompiled_…\LocalState\NoMercyRecompiled\`:
+
+- **No `NoMercyRecompiled.log` at all**: the exe never ran its first line. Check that `Microsoft.VCLibs.x64.14.00.appx`
+  was installed with it, and that **App type** is **Game**.
+- **The log ends in `==== [wcw] unhandled exception 0x… ====`**: the next line gives the faulting address as
+  `NoMercyRecompiled.exe +0x…`. Look that offset up in `NoMercyRecompiled.map` from the `-DebugSyms` artifact of the
+  same run.
+- **Otherwise** the last lines show how far it got (`[wcw] priming DXGI + D3D12`, `[wcw] create_render_context`, …).

@@ -15,6 +15,12 @@
 
 #include "SDL.h"
 
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <delayimp.h>
+
 #include <winrt/base.h>
 #include <winrt/Windows.ApplicationModel.h>
 #include <winrt/Windows.ApplicationModel.Core.h>
@@ -105,6 +111,45 @@ namespace {
             });
     }
 }
+
+// ---- delay-loaded DLLs missing on the console ----
+// The exe delay-loads the desktop DLLs its libraries still reference (see CMakeLists.txt). Without this hook the first
+// call into one that the Xbox doesn't have raises 0xC06D007E and takes the app down. With it the call returns a stub's
+// value instead and the log names the function: 0 (FALSE / NULL) in general, E_FAIL from the shader compilers, whose
+// callers all check an HRESULT.
+
+extern "C" IMAGE_DOS_HEADER __ImageBase;
+
+namespace {
+    intptr_t delay_load_stub_zero() {
+        return 0;
+    }
+
+    intptr_t delay_load_stub_e_fail() {
+        return intptr_t(int32_t(0x80004005));
+    }
+
+    FARPROC WINAPI delay_load_failure(unsigned notify, PDelayLoadInfo info) {
+        if (notify == dliFailLoadLib) {
+            fprintf(stderr, "[uwp] %s isn't on this system: its functions are stubbed\n", info->szDll);
+            // Any loaded module will do: the lookup in it fails, which comes back here as dliFailGetProc.
+            return reinterpret_cast<FARPROC>(&__ImageBase);
+        }
+        if (notify == dliFailGetProc) {
+            if (info->dlp.fImportByName) {
+                fprintf(stderr, "[uwp] stubbed %s!%s\n", info->szDll, info->dlp.szProcName);
+            }
+            else {
+                fprintf(stderr, "[uwp] stubbed %s!#%lu\n", info->szDll, (unsigned long)info->dlp.dwOrdinal);
+            }
+            const bool returns_hresult = (_stricmp(info->szDll, "dxcompiler.dll") == 0) || (_stricmp(info->szDll, "d3dcompiler_47.dll") == 0);
+            return reinterpret_cast<FARPROC>(returns_hresult ? &delay_load_stub_e_fail : &delay_load_stub_zero);
+        }
+        return nullptr;
+    }
+}
+
+extern "C" const PfnDliHook __pfnDliFailureHook2 = delay_load_failure;
 
 // ---- hooks used by the patched libraries ----
 

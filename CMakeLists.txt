@@ -47,6 +47,8 @@ if (NMR_UWP)
         message(FATAL_ERROR "NMR_UWP_SDL2_DIR must point at a UWP build of SDL2 (no SDL2.lib in '${NMR_UWP_SDL2_DIR}').")
     endif()
     add_compile_definitions(NMR_UWP)
+    # imgui (rt64's inspector) would otherwise call imm32.dll and user32's clipboard, which the Xbox doesn't have.
+    add_compile_definitions(IMGUI_DISABLE_WIN32_DEFAULT_IME_FUNCTIONS IMGUI_DISABLE_WIN32_DEFAULT_CLIPBOARD_FUNCTIONS)
 endif()
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
@@ -234,7 +236,9 @@ if (NMR_UWP)
     # Link order matters: WindowsApp.lib comes first so every API it covers imports from its API set (present on
     # Xbox), and the store CRT libs replace the desktop ones (vcruntime140_app.dll/msvcp140_app.dll, from the
     # Microsoft.VCLibs framework package). Desktop-only DLLs the code still references (diagnostics, the Win32
-    # paths that NMR_UWP keeps from running) are delay-loaded, so a DLL missing on Xbox only matters if it's called.
+    # paths that NMR_UWP keeps from running) are delay-loaded, so a DLL missing on Xbox only matters if it's called,
+    # and then uwp_platform.cpp's delay-load failure hook stubs the call instead of crashing. uwp/package.ps1 refuses
+    # an exe that imports anything else outright, since a missing static import stops the app from starting at all.
     if (NOT DEFINED ENV{VCToolsInstallDir})
         message(FATAL_ERROR "NMR_UWP needs a VS developer shell (VCToolsInstallDir) for the store CRT libraries.")
     endif()
@@ -249,6 +253,8 @@ if (NMR_UWP)
         "${NMR_STORE_CRT_DIR}/msvcrt.lib" "${NMR_STORE_CRT_DIR}/msvcprt.lib" "${NMR_STORE_CRT_DIR}/vcruntime.lib"
         /DELAYLOAD:user32.dll /DELAYLOAD:shell32.dll /DELAYLOAD:shcore.dll /DELAYLOAD:comdlg32.dll
         /DELAYLOAD:dbghelp.dll /DELAYLOAD:winmm.dll /DELAYLOAD:winhttp.dll /DELAYLOAD:dxcompiler.dll
+        /DELAYLOAD:imm32.dll /DELAYLOAD:d3dcompiler_47.dll /DELAYLOAD:ole32.dll /DELAYLOAD:oleaut32.dll
+        /DELAYLOAD:api-ms-win-shcore-scaling-l1-1-1.dll
         /MAP:NoMercyRecompiled.map
         /STACK:16777216)
     target_link_libraries(NoMercyRecompiled PRIVATE delayimp.lib winhttp.lib)

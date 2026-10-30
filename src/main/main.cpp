@@ -119,6 +119,9 @@ static LONG WINAPI wcw_unhandled_filter(EXCEPTION_POINTERS* ep) {
     HANDLE thread = GetCurrentThread();
     SymSetOptions(SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS | SYMOPT_LOAD_LINES);
     SymInitialize(proc, nullptr, TRUE);
+    // The faulting address first: on Xbox there's no dbghelp, so the walk below prints nothing, but module+offset
+    // resolves against NoMercyRecompiled.map.
+    wcw_print_frame(proc, -1, (DWORD64)ep->ExceptionRecord->ExceptionAddress);
     CONTEXT ctx = *ep->ContextRecord;
     STACKFRAME64 sf{};
     sf.AddrPC.Offset = ctx.Rip;    sf.AddrPC.Mode = AddrModeFlat;
