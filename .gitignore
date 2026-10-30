@@ -106,3 +106,8 @@ ra*.log
 *.err.log
 *.out.log
 wcw_*_log.csv
+
+# UWP packaging output and signing certificates (uwp/package.ps1)
+uwp-package/
+*.pfx
+*.cer

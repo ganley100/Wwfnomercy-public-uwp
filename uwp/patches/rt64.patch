@@ -1,0 +1,184 @@
+diff --git a/src/common/rt64_user_configuration.cpp b/src/common/rt64_user_configuration.cpp
+index cc35442..1bcb585 100644
+--- a/src/common/rt64_user_configuration.cpp
++++ b/src/common/rt64_user_configuration.cpp
+@@ -126,7 +126,10 @@ namespace RT64 {
+     }
+ 
+     bool UserConfiguration::isGraphicsAPISupported(GraphicsAPI graphicsAPI) {
+-#   if defined(_WIN32)
++#   if defined(NMR_UWP)
++        // [uwp] Xbox only has D3D12.
++        if ((graphicsAPI == GraphicsAPI::Vulkan) || (graphicsAPI == GraphicsAPI::Metal)) {
++#   elif defined(_WIN32)
+         if (graphicsAPI == GraphicsAPI::Metal) {
+ #   elif defined(__APPLE__)
+         if (graphicsAPI == GraphicsAPI::D3D12) {
+@@ -141,7 +144,9 @@ namespace RT64 {
+ 
+     UserConfiguration::GraphicsAPI UserConfiguration::resolveGraphicsAPI(GraphicsAPI graphicsAPI) {
+         if (graphicsAPI == UserConfiguration::GraphicsAPI::Automatic) {
+-#       if defined(_WIN64)
++#       if defined(NMR_UWP)
++            return UserConfiguration::GraphicsAPI::D3D12;
++#       elif defined(_WIN64)
+             // Change the default graphics API when running under Wine to avoid using the D3D12 translation layer when possible. Recreate the default user configuration right afterwards so this new value is assigned.
+             return Sommelier::detectWine() ? UserConfiguration::GraphicsAPI::Vulkan : UserConfiguration::GraphicsAPI::D3D12;
+ #       elif defined(__APPLE__)
+diff --git a/src/common/rt64_user_paths.cpp b/src/common/rt64_user_paths.cpp
+index f38d8eb..80fa56d 100644
+--- a/src/common/rt64_user_paths.cpp
++++ b/src/common/rt64_user_paths.cpp
+@@ -13,6 +13,10 @@
+ #   include "apple/rt64_apple.h"
+ #endif
+ 
++#if defined(NMR_UWP)
++extern "C" const wchar_t *nmr_uwp_local_folder();
++#endif
++
+ namespace RT64 {
+     // UserPaths
+ 
+@@ -24,7 +28,10 @@ namespace RT64 {
+     std::filesystem::path UserPaths::detectDataPath(const std::filesystem::path &appId) {
+         std::filesystem::path resultPath;
+ 
+-#   if defined(_WIN32)
++#   if defined(NMR_UWP)
++        // [uwp] The app's LocalState folder (implemented by the app; %LOCALAPPDATA% is not writable from a package).
++        resultPath = std::filesystem::path{ nmr_uwp_local_folder() } / appId;
++#   elif defined(_WIN32)
+         PWSTR knownPath = NULL;
+         HRESULT result = SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, NULL, &knownPath);
+         if (result == S_OK) {
+diff --git a/src/hle/rt64_application.cpp b/src/hle/rt64_application.cpp
+index 9904e4e..349b713 100644
+--- a/src/hle/rt64_application.cpp
++++ b/src/hle/rt64_application.cpp
+@@ -89,7 +89,8 @@ namespace RT64 {
+     }
+ 
+     Application::SetupResult Application::setup(uint32_t threadId) {
+-#   ifdef _WIN64
++#   if defined(_WIN64) && !defined(NMR_UWP)
++        // [uwp] Not on UWP: the shaders are precompiled and DXC is never needed at runtime there.
+         if (!DynamicLibraries::load()) {
+             fprintf(stderr, "Failed to load dynamic libraries. Make sure the dependencies are next to the Plugin's DLL.\n");
+             return SetupResult::Success;
+@@ -138,8 +139,8 @@ namespace RT64 {
+         chosenGraphicsAPI = UserConfiguration::resolveGraphicsAPI(userConfig.graphicsAPI);
+         fprintf(stderr, "[rt64setup] resolved API = %d\n", (int)chosenGraphicsAPI);
+ 
+-#   ifdef _WIN64
+-        // Windows can try falling back to the other API option in case of failure.
++#   if defined(_WIN64) && !defined(NMR_UWP)
++        // Windows can try falling back to the other API option in case of failure. ([uwp] Xbox has no Vulkan.)
+         const uint32_t CreationAttempts = (userConfig.graphicsAPI == UserConfiguration::GraphicsAPI::Automatic) ? 2 : 1;
+ #   else
+         const uint32_t CreationAttempts = 1;
+diff --git a/src/hle/rt64_application_window.cpp b/src/hle/rt64_application_window.cpp
+index 6a24b1d..999d8f9 100755
+--- a/src/hle/rt64_application_window.cpp
++++ b/src/hle/rt64_application_window.cpp
+@@ -4,6 +4,7 @@
+ 
+ #include "rt64_application_window.h"
+ 
++#include <algorithm>
+ #include <cassert>
+ #include <stdio.h>
+ #include <SDL.h>
+@@ -37,7 +38,7 @@ namespace RT64 {
+             HookedApplicationWindow = nullptr;
+         }
+ 
+-#   ifdef _WIN32
++#   if defined(_WIN32) && !defined(NMR_UWP)
+         if (windowHook != nullptr) {
+             UnhookWindowsHookEx(windowHook);
+         }
+@@ -92,7 +93,7 @@ namespace RT64 {
+ 
+         if (listener->usesWindowMessageFilter()) {
+             if (sdlWindow == nullptr) {
+-#           ifdef _WIN32
++#           if defined(_WIN32) && !defined(NMR_UWP)
+                 assert(HookedApplicationWindow == nullptr);
+                 assert(threadId != 0);
+                 windowHook = SetWindowsHookEx(WH_GETMESSAGE, &windowHookCallback, NULL, threadId);
+@@ -199,7 +200,10 @@ namespace RT64 {
+             return;
+         }
+ 
+-#   ifdef _WIN32
++#   if defined(NMR_UWP)
++        // [uwp] The CoreWindow is always full screen on Xbox; there is no window mode to switch to.
++        fullScreen = newFullScreen;
++#   elif defined(_WIN32)
+         if (newFullScreen) {
+             // Save if window is maximized or not
+             WINDOWPLACEMENT windowPlacement;
+@@ -263,7 +267,7 @@ namespace RT64 {
+     }
+ 
+     void ApplicationWindow::makeResizable() {
+-#   ifdef _WIN32
++#   if defined(_WIN32) && !defined(NMR_UWP)
+         LONG_PTR lStyle = GetWindowLongPtr(windowHandle, GWL_STYLE);
+         windowMenu = GetMenu(windowHandle);
+         lStyle |= WS_THICKFRAME | WS_MAXIMIZEBOX;
+@@ -272,7 +276,16 @@ namespace RT64 {
+     }
+ 
+     void ApplicationWindow::detectRefreshRate() {
+-#   if defined(_WIN32)
++#   if defined(NMR_UWP)
++        // [uwp] No monitor APIs in an app container; SDL reports the display mode.
++        SDL_DisplayMode displayMode = {};
++        if ((sdlWindow != nullptr) && (SDL_GetCurrentDisplayMode(std::max(SDL_GetWindowDisplayIndex(sdlWindow), 0), &displayMode) == 0) && (displayMode.refresh_rate > 0)) {
++            refreshRate = displayMode.refresh_rate;
++        }
++        else {
++            refreshRate = 60;
++        }
++#   elif defined(_WIN32)
+         HMONITOR monitor = MonitorFromWindow(windowHandle, MONITOR_DEFAULTTONEAREST);
+         MONITORINFOEX info = {};
+         info.cbSize = sizeof(info);
+@@ -359,7 +372,11 @@ namespace RT64 {
+         int32_t newWindowLeft = INT32_MAX;
+         int32_t newWindowTop = INT32_MAX;
+ 
+-#   if defined(_WIN64)
++#   if defined(NMR_UWP)
++        // [uwp] The CoreWindow never moves.
++        newWindowLeft = 0;
++        newWindowTop = 0;
++#   elif defined(_WIN64)
+         RECT rect;
+         GetWindowRect(windowHandle, &rect);
+         newWindowLeft = rect.left;
+diff --git a/src/render/rt64_hdr_output.cpp b/src/render/rt64_hdr_output.cpp
+index 5227e08..74bb560 100644
+--- a/src/render/rt64_hdr_output.cpp
++++ b/src/render/rt64_hdr_output.cpp
+@@ -67,7 +67,7 @@ namespace RT64 {
+         return settings;
+     }
+ 
+-#   if defined(_WIN32)
++#   if defined(_WIN32) && !defined(NMR_UWP)
+     // Windows' "SDR content brightness" for the monitor (DISPLAYCONFIG_SDR_WHITE_LEVEL), in nits.
+     static float querySdrWhiteNits(HMONITOR monitor) {
+         MONITORINFOEXW monitorInfo = {};
+@@ -114,7 +114,8 @@ namespace RT64 {
+ 
+     HdrOutput::DisplayInfo HdrOutput::queryDisplay(RenderWindow window) {
+         DisplayInfo info;
+-#   if defined(_WIN32)
++        // [uwp] No monitor or display-config APIs in an app container: report SDR (the defaults).
++#   if defined(_WIN32) && !defined(NMR_UWP)
+         const HMONITOR monitor = MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST);
+         IDXGIFactory1 *factory = nullptr;
+         if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory)))) {

@@ -1,0 +1,113 @@
+# Xbox One Dev Mode build: the UWP app (cmake -DNMR_UWP=ON) packaged as a signed MSIX. See uwp/README.md.
+#
+# Same ROM-to-C steps as validate.yml (which this mirrors), then: the uwp/ patches on the lib/ submodules, a UWP build
+# of SDL2, the port with NMR_UWP, and uwp/package.ps1.
+#
+# Required repository secrets (same as validate.yml):
+#   NOMERCY_CI_PAT   - fine-grained PAT (Contents: read-only) with access to the private ROM repo.
+#   NOMERCY_ROM_REPO - "<owner>/<repo>" of the private repo holding nomercy.z64 at its root.
+# Optional, so every build is signed with the same certificate (an update then installs over the previous one):
+#   UWP_PFX_BASE64   - base64 of a code-signing .pfx whose subject is CN=NoMercyRecompiled (uwp/package.ps1 makes one).
+#   UWP_PFX_PASSWORD - its password.
+name: uwp
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  SDL2_VERSION: '2.30.3'
+  N64RECOMP_COMMIT: 'ffb39cdad1da5de07eaaa48bd1db4a89a7986771'
+jobs:
+  build-uwp:
+    runs-on: windows-latest
+    name: xbox (uwp msix)
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Apply UWP patches to the submodules
+        run: |
+          python uwp/apply_patches.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Install Windows Dependencies
+        run: choco install ninja
+      - name: Configure Developer Command Prompt
+        uses: ilammy/msvc-dev-cmd@v1
+      - name: Get ROM
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.NOMERCY_ROM_REPO }}
+          token: ${{ secrets.NOMERCY_CI_PAT }}
+          path: nomercy-secret
+      - name: Prepare Build
+        run: copy .\nomercy-secret\nomercy.z64 .\
+      - name: Build N64Recomp & RSPRecomp
+        run: |
+          git clone https://github.com/N64Recomp/N64Recomp.git --recurse-submodules N64RecompSource
+          cd N64RecompSource
+          git checkout $env:N64RECOMP_COMMIT
+          git submodule update --init --recursive
+          cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_MAKE_PROGRAM=ninja -G Ninja -S . -B cmake-build
+          cmake --build cmake-build --config Release --target N64RecompCLI RSPRecomp
+          cp cmake-build/N64Recomp.exe ..
+          cp cmake-build/RSPRecomp.exe ..
+      - name: Run N64Recomp & RSPRecomp
+        run: |
+          ./N64Recomp.exe nomercy.toml
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./RSPRecomp.exe rsp/nomercy_audio.toml
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Post-regen fixup pipeline (mandatory — see BUILDING.md §4)
+        run: |
+          foreach ($step in 'fix_stumps', 'fix_switches', 'fix_jraddend', 'fix_backbranches', 'fix_selfentry', 'readd_hand_edits', 'audit_coresidency') {
+            python "tools/$step.py"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          python tools/romhack/list_repaired_functions.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build SDL2 for UWP
+        run: .\uwp\build_sdl2.ps1 -Version $env:SDL2_VERSION -OutDir build-sdl2-uwp
+      - name: Build NoMercyRecompiled (UWP)
+        run: |
+          # Remove Chocolatey LLVM from PATH so VS's clang-cl is used for the port.
+          $env:PATH = ($env:PATH -split ';' | Where-Object { $_ -ne 'C:\Program Files\LLVM\bin' }) -join ';'
+          cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=clang-cl -DCMAKE_C_COMPILER=clang-cl -DCMAKE_MAKE_PROGRAM=ninja -G Ninja `
+            -DNMR_UWP=ON -DNMR_UWP_SDL2_DIR="$PWD/build-sdl2-uwp" -S . -B build-uwp
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build build-uwp --config Release --target NoMercyRecompiled
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Package MSIX
+        env:
+          UWP_PFX_BASE64: ${{ secrets.UWP_PFX_BASE64 }}
+          UWP_PFX_PASSWORD: ${{ secrets.UWP_PFX_PASSWORD }}
+        run: |
+          $pkg = @{ BuildDir = 'build-uwp'; OutDir = 'uwp-package'; Version = "0.2.$($env:GITHUB_RUN_NUMBER).0" }
+          if ($env:UWP_PFX_BASE64) {
+            [IO.File]::WriteAllBytes("$PWD\signing.pfx", [Convert]::FromBase64String($env:UWP_PFX_BASE64))
+            $pkg.Pfx = "$PWD\signing.pfx"
+            $pkg.PfxPassword = $env:UWP_PFX_PASSWORD
+          }
+          .\uwp\package.ps1 @pkg
+          if (Test-Path signing.pfx) { Remove-Item signing.pfx }
+          # Only a self-signed certificate made by this run is published; a secret one never is.
+          if ($env:UWP_PFX_BASE64) { Remove-Item uwp-package\NoMercyRecompiled.pfx -ErrorAction SilentlyContinue }
+      - name: Archive MSIX
+        uses: actions/upload-artifact@v4
+        with:
+          name: NoMercyRecompiled-Xbox-UWP
+          path: |
+            uwp-package/*.msix
+            uwp-package/*.cer
+            uwp-package/Dependencies/*
+      - name: Archive Debug Files
+        uses: actions/upload-artifact@v4
+        with:
+          name: NoMercyRecompiled-Xbox-UWP-DebugSyms
+          path: |
+            build-uwp/NoMercyRecompiled.map
+            build-uwp/NoMercyRecompiled.pdb
+          if-no-files-found: warn

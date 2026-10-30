@@ -1,0 +1,83 @@
+diff --git a/recompui/src/composites/ui_mod_menu.cpp b/recompui/src/composites/ui_mod_menu.cpp
+index 02455fd..66e847c 100644
+--- a/recompui/src/composites/ui_mod_menu.cpp
++++ b/recompui/src/composites/ui_mod_menu.cpp
+@@ -289,7 +289,10 @@ void ModMenu::refresh_mods(bool scan_mods) {
+ 
+ void ModMenu::open_mods_folder() {
+     std::filesystem::path mods_directory = recomp::mods::get_mods_directory();
+-#if defined(WIN32)
++#if defined(NMR_UWP)
++    // [uwp] No shell to open a folder in; mods are copied in through the Device Portal's file explorer (LocalState).
++    (void)mods_directory;
++#elif defined(WIN32)
+     std::wstring path_wstr = mods_directory.wstring();
+     ShellExecuteW(NULL, L"open", path_wstr.c_str(), NULL, NULL, SW_SHOWDEFAULT);
+ #elif defined(__linux__)
+diff --git a/recompui/src/config/ui_config_tab_graphics.cpp b/recompui/src/config/ui_config_tab_graphics.cpp
+index 0b67119..6d487e9 100644
+--- a/recompui/src/config/ui_config_tab_graphics.cpp
++++ b/recompui/src/config/ui_config_tab_graphics.cpp
+@@ -70,7 +70,7 @@ namespace recompui {
+         #if defined(_WIN32)
+         #define ALLOW_D3D12
+         #endif
+-        #if defined(_WIN32) || defined(__linux__)
++        #if (defined(_WIN32) && !defined(NMR_UWP)) || defined(__linux__)
+         #define ALLOW_VULKAN
+         #endif
+         #if defined(__APPLE__)
+diff --git a/recompui/src/util/file.cpp b/recompui/src/util/file.cpp
+index 7ee84ed..c4d7a92 100644
+--- a/recompui/src/util/file.cpp
++++ b/recompui/src/util/file.cpp
+@@ -20,6 +20,16 @@
+ #endif
+ 
+ namespace recompui {
++#if defined(NMR_UWP)
++    // [uwp] Implemented by the app (WinRT file picker and LocalState folder): the Win32 file dialog and known folders
++    // aren't available in an app container. Picked files are copied into LocalState, so callbacks get a readable path.
++    namespace file::uwp {
++        std::filesystem::path get_local_folder();
++        void open_file_dialog(std::function<void(bool success, const std::filesystem::path& path)> callback);
++        void open_file_dialog_multiple(std::function<void(bool success, const std::list<std::filesystem::path>& paths)> callback);
++    }
++#endif
++
+     static void perform_file_dialog_operation(const std::function<void(bool, const std::filesystem::path&)>& callback) {
+         nfdnchar_t* native_path = nullptr;
+         nfdresult_t result = NFD_OpenDialogN(&native_path, nullptr, 0, nullptr);
+@@ -74,7 +84,9 @@ namespace recompui {
+ 
+         std::filesystem::path recomp_dir{};
+ 
+-#if defined(_WIN32)
++#if defined(NMR_UWP)
++        recomp_dir = file::uwp::get_local_folder() / programconfig::get_program_id();
++#elif defined(_WIN32)
+         // Deduce local app data path.
+         PWSTR known_path = NULL;
+         HRESULT result = SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, NULL, &known_path);
+@@ -129,7 +141,9 @@ namespace recompui {
+     }
+ 
+     void file::open_file_dialog(std::function<void(bool success, const std::filesystem::path& path)> callback) {
+-#ifdef __APPLE__
++#if defined(NMR_UWP)
++        file::uwp::open_file_dialog(callback);
++#elif defined(__APPLE__)
+         file::apple::dispatch_on_ui_thread([callback]() {
+             perform_file_dialog_operation(callback);
+         });
+@@ -139,7 +153,9 @@ namespace recompui {
+     }
+ 
+     void file::open_file_dialog_multiple(std::function<void(bool success, const std::list<std::filesystem::path>& paths)> callback) {
+-#ifdef __APPLE__
++#if defined(NMR_UWP)
++        file::uwp::open_file_dialog_multiple(callback);
++#elif defined(__APPLE__)
+         file::apple::dispatch_on_ui_thread([callback]() {
+             perform_file_dialog_operation_multiple(callback);
+         });

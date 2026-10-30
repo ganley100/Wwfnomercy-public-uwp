@@ -44,6 +44,7 @@
 #ifdef _WIN32
 #include "renderdoc_app.h" // [wcw] RenderDoc in-app capture API (diagnostic)
 #endif
+#include "uwp_platform.h"
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -593,7 +594,19 @@ RspUcodeFunc* get_rsp_microcode(const OSTask* task) {
     return &wcw_null_ucode;
 }
 
-#ifdef _WIN32
+#if defined(NMR_UWP)
+// [uwp] A packaged app has no console and no inherited std handles: stdio always goes to log files in LocalState
+// (NoMercyRecompiled.log for stderr, where everything is logged, and NoMercyRecompiled.out.log for stdout, which carries
+// the recompiler's switch_error aborts). Read them back through the Device Portal's file explorer.
+static void wcw_setup_logging(bool) {
+    std::filesystem::path app_folder = recompui::file::get_app_folder_path();
+    std::error_code ec;
+    std::filesystem::create_directories(app_folder, ec);
+    FILE* f = nullptr;
+    _wfreopen_s(&f, (app_folder / "NoMercyRecompiled.log").c_str(), L"w", stderr);
+    _wfreopen_s(&f, (app_folder / "NoMercyRecompiled.out.log").c_str(), L"w", stdout);
+}
+#elif defined(_WIN32)
 // [wcw] C4: release builds link as /SUBSYSTEM:WINDOWS (no console window). When launched
 // without usable stdio (double-click), route stdout+stderr to a log file in the app folder
 // so bug reports have something to attach (the terminate/SEH backtraces land there too).
@@ -817,7 +830,28 @@ static void register_texture_packs(const std::filesystem::path& app_folder, bool
     }
 }
 
+#if defined(NMR_UWP)
+// [uwp] SDL's WinRT entry point: it runs the CoreApplication and calls the game's main on the CoreWindow's thread.
+// Declared here because the SDL headers used for the build are the desktop ones (same ABI as the UWP SDL2.dll).
+extern "C" DECLSPEC int SDLCALL SDL_WinRTRunApp(SDL_main_func mainFunction, void* reserved);
+static int nmr_main(int argc, char** argv);
+
+int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
+    // The controller's B button would otherwise navigate "back" and suspend the app.
+    SDL_SetHint(SDL_HINT_WINRT_HANDLE_BACK_BUTTON, "1");
+    return SDL_WinRTRunApp(nmr_main, nullptr);
+}
+
+static int nmr_main(int argc, char** argv) {
+    // assets/ and recompcontrollerdb.txt are loaded relative to the working directory (get_program_path is empty on
+    // Windows); make sure that is the package's install folder.
+    {
+        std::error_code ec;
+        std::filesystem::current_path(nmr_uwp_install_folder(), ec);
+    }
+#else
 int main(int argc, char** argv) {
+#endif
     bool show_console = false;
     bool dump_textures = false;
     for (int i = 1; i < argc; i++) {
@@ -1077,6 +1111,20 @@ int main(int argc, char** argv) {
         }
     }
     else {
+#if defined(NMR_UWP)
+        // [uwp] Convenience for Xbox: a ROM copied into LocalState as nomercy.z64 (Device Portal file explorer) is
+        // validated and stored on launch, so the launcher offers Start Game without going through the file picker.
+        // A ROM that's already stored is left alone, and a bad one just falls through to Load ROM.
+        {
+            const std::filesystem::path dropped_rom = app_folder.parent_path() / "nomercy.z64";
+            std::error_code ec;
+            if (std::filesystem::exists(dropped_rom, ec) && !recomp::is_rom_valid(game_id)) {
+                const auto rom_err = recomp::select_rom(dropped_rom, game_id);
+                fprintf(stderr, "[uwp] LocalState nomercy.z64: %s (err=%d)\n",
+                    rom_err == recomp::RomValidationError::Good ? "stored" : "rejected", (int)rom_err);
+            }
+        }
+#endif
         // Launcher menu options. The Mods entry is live: librecomp already calls
         // initialize_mods() + scan_mods() unconditionally from recomp::start
         // (recomp.cpp), so the live recompiler, the mods/ folder under the config path

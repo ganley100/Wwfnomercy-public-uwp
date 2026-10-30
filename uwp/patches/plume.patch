@@ -1,0 +1,56 @@
+diff --git a/plume_d3d12.cpp b/plume_d3d12.cpp
+index 7a7cd5c..430431a 100644
+--- a/plume_d3d12.cpp
++++ b/plume_d3d12.cpp
+@@ -14,6 +14,11 @@
+ 
+ #include <dxgi1_5.h>
+ 
++#if defined(NMR_UWP)
++// [uwp] Implemented by the app: the CoreWindow's current size in pixels.
++extern "C" void nmr_uwp_get_window_size(void *coreWindow, uint32_t *width, uint32_t *height);
++#endif
++
+ #ifdef __clang__
+ #pragma clang diagnostic push
+ #pragma clang diagnostic ignored "-Wtautological-undefined-compare"
+@@ -1423,6 +1428,15 @@ namespace plume {
+ 
+         IDXGISwapChain1 *swapChain1;
+         IDXGIFactory4 *dxgiFactory = commandQueue->device->renderInterface->dxgiFactory;
++#   if defined(NMR_UWP)
++        // [uwp] The render window is the app's CoreWindow (an IUnknown carried in the HWND-typed handle). CoreWindow
++        // swap chains have no window association to configure and must use stretch scaling (the default).
++        HRESULT res = dxgiFactory->CreateSwapChainForCoreWindow(commandQueue->d3d, reinterpret_cast<IUnknown *>(desc.renderWindow), &swapChainDesc, nullptr, &swapChain1);
++        if (FAILED(res)) {
++            fprintf(stderr, "CreateSwapChainForCoreWindow failed with error code 0x%lX.\n", res);
++            return;
++        }
++#   else
+         HRESULT res = dxgiFactory->CreateSwapChainForHwnd(commandQueue->d3d, desc.renderWindow, &swapChainDesc, nullptr, nullptr, &swapChain1);
+         if (FAILED(res)) {
+             fprintf(stderr, "CreateSwapChainForHwnd failed with error code 0x%lX.\n", res);
+@@ -1434,6 +1448,7 @@ namespace plume {
+             fprintf(stderr, "MakeWindowAssociation failed with error code 0x%lX.\n", res);
+             return;
+         }
++#   endif
+ 
+         d3d = static_cast<IDXGISwapChain3 *>(swapChain1);
+         d3d->SetMaximumFrameLatency(desc.maxFrameLatency);
+@@ -1548,10 +1563,15 @@ namespace plume {
+     }
+ 
+     void D3D12SwapChain::getWindowSize(uint32_t &dstWidth, uint32_t &dstHeight) const {
++#   if defined(NMR_UWP)
++        // [uwp] A CoreWindow's size can only be read on its own (UI) thread; the app reports it from there.
++        nmr_uwp_get_window_size(reinterpret_cast<void *>(desc.renderWindow), &dstWidth, &dstHeight);
++#   else
+         RECT rect;
+         GetClientRect(desc.renderWindow, &rect);
+         dstWidth = rect.right - rect.left;
+         dstHeight = rect.bottom - rect.top;
++#   endif
+     }
+ 
+     void D3D12SwapChain::setTextures() {

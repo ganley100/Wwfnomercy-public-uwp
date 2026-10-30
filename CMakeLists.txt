@@ -31,6 +31,23 @@ endif()
 if (CMAKE_VERSION VERSION_GREATER_EQUAL "3.24.0")
     cmake_policy(SET CMP0135 NEW)
 endif()
+
+# --- UWP (Xbox One Dev Mode) build: see uwp/README.md ---
+# Same toolchain (clang-cl + Ninja) and the same desktop-family headers; NMR_UWP switches the code paths that need an
+# app container (CoreWindow swap chain, LocalState paths, WinRT file picker) and the link step below produces an
+# /APPCONTAINER exe on the app CRT for uwp/package.ps1 to wrap in an MSIX. Apply uwp/patches first
+# (python uwp/apply_patches.py).
+option(NMR_UWP "Build the UWP app for Xbox One Dev Mode instead of the Windows desktop exe" OFF)
+if (NMR_UWP)
+    if (NOT WIN32)
+        message(FATAL_ERROR "NMR_UWP needs the Windows (clang-cl) toolchain.")
+    endif()
+    set(NMR_UWP_SDL2_DIR "" CACHE PATH "Folder holding the UWP build of SDL2 (SDL2.lib + SDL2.dll), see uwp/build_sdl2.ps1")
+    if (NOT EXISTS "${NMR_UWP_SDL2_DIR}/SDL2.lib")
+        message(FATAL_ERROR "NMR_UWP_SDL2_DIR must point at a UWP build of SDL2 (no SDL2.lib in '${NMR_UWP_SDL2_DIR}').")
+    endif()
+    add_compile_definitions(NMR_UWP)
+endif()
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 
@@ -146,7 +163,7 @@ add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/logo_bytes.c ${CMAKE_CURRE
     DEPENDS ${CMAKE_SOURCE_DIR}/icons/logo.png file_to_c
 )
 target_sources(NoMercyRecompiled PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/logo_bytes.c)
-if (WIN32)
+if (WIN32 AND NOT NMR_UWP)
     enable_language(RC)
     target_sources(NoMercyRecompiled PRIVATE ${CMAKE_SOURCE_DIR}/icons/app.rc)
     # The RC compiler doesn't emit depfiles for referenced resources, so without this
@@ -164,6 +181,9 @@ set(SOURCES
     ${CMAKE_SOURCE_DIR}/src/ra/ra_client.cpp
     ${CMAKE_SOURCE_DIR}/rsp/nomercy_audio.cpp
 )
+if (NMR_UWP)
+    list(APPEND SOURCES ${CMAKE_SOURCE_DIR}/src/main/uwp_platform.cpp)
+endif()
 
 # RetroAchievements prototype: vendored rcheevos (see src/ra/rcheevos/VENDORED.txt)
 # compiled into the game exe. Softcore-only client, env-gated at runtime (WCW_RA=1).
@@ -182,7 +202,7 @@ target_compile_definitions(NoMercyRecompiled PRIVATE
     RC_DISABLE_LUA
     RC_CLIENT_SUPPORTS_HASH
 )
-if (WIN32)
+if (WIN32 AND NOT NMR_UWP)
     target_link_libraries(NoMercyRecompiled PRIVATE winhttp.lib)
 endif()
 target_include_directories(NoMercyRecompiled PRIVATE
@@ -194,7 +214,40 @@ target_include_directories(NoMercyRecompiled PRIVATE
     ${CMAKE_SOURCE_DIR}/lib/RecompFrontend/recompui/include
     ${CMAKE_CURRENT_BINARY_DIR}
 )
-if (WIN32)
+if (NMR_UWP)
+    # The desktop SDL2 devel headers (same version and ABI) with the UWP SDL2 build's import library.
+    target_include_directories(NoMercyRecompiled PRIVATE ${sdl2_SOURCE_DIR}/include)
+    target_link_directories(NoMercyRecompiled PRIVATE ${NMR_UWP_SDL2_DIR})
+    target_link_libraries(NoMercyRecompiled PRIVATE SDL2)
+    # Link order matters: WindowsApp.lib comes first so every API it covers imports from its API set (present on
+    # Xbox), and the store CRT libs replace the desktop ones (vcruntime140_app.dll/msvcp140_app.dll, from the
+    # Microsoft.VCLibs framework package). Desktop-only DLLs the code still references (diagnostics, the Win32
+    # paths that NMR_UWP keeps from running) are delay-loaded, so a DLL missing on Xbox only matters if it's called.
+    if (NOT DEFINED ENV{VCToolsInstallDir})
+        message(FATAL_ERROR "NMR_UWP needs a VS developer shell (VCToolsInstallDir) for the store CRT libraries.")
+    endif()
+    file(TO_CMAKE_PATH "$ENV{VCToolsInstallDir}" NMR_VC_TOOLS_DIR)
+    set(NMR_STORE_CRT_DIR "${NMR_VC_TOOLS_DIR}/lib/x64/store")
+    target_link_options(NoMercyRecompiled PRIVATE
+        WindowsApp.lib
+        /APPCONTAINER
+        /SUBSYSTEM:WINDOWS
+        /ENTRY:wWinMainCRTStartup
+        /NODEFAULTLIB:msvcrt.lib /NODEFAULTLIB:msvcprt.lib /NODEFAULTLIB:vcruntime.lib
+        "${NMR_STORE_CRT_DIR}/msvcrt.lib" "${NMR_STORE_CRT_DIR}/msvcprt.lib" "${NMR_STORE_CRT_DIR}/vcruntime.lib"
+        /DELAYLOAD:user32.dll /DELAYLOAD:shell32.dll /DELAYLOAD:shcore.dll /DELAYLOAD:comdlg32.dll
+        /DELAYLOAD:dbghelp.dll /DELAYLOAD:winmm.dll /DELAYLOAD:winhttp.dll /DELAYLOAD:dxcompiler.dll
+        /MAP:NoMercyRecompiled.map
+        /STACK:16777216)
+    target_link_libraries(NoMercyRecompiled PRIVATE delayimp.lib winhttp.lib)
+    if (MSVC)
+        target_link_options(NoMercyRecompiled PRIVATE /OPT:NOICF)
+    endif()
+    # The package layout (uwp/package.ps1 copies this folder): SDL2 next to the exe. No dxc/librashader DLLs: the
+    # shaders are precompiled, and the CRT filter's librashader is a desktop DLL (the filter stays off on Xbox).
+    add_custom_command(TARGET NoMercyRecompiled POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${NMR_UWP_SDL2_DIR}/SDL2.dll" $<TARGET_FILE_DIR:NoMercyRecompiled>)
+elseif (WIN32)
     target_include_directories(NoMercyRecompiled PRIVATE ${sdl2_SOURCE_DIR}/include)
     target_link_directories(NoMercyRecompiled PRIVATE ${sdl2_SOURCE_DIR}/lib/x64)
     target_link_libraries(NoMercyRecompiled PRIVATE SDL2 Winmm.lib)
