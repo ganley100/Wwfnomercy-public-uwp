@@ -22,7 +22,9 @@ env:
   N64RECOMP_COMMIT: 'ffb39cdad1da5de07eaaa48bd1db4a89a7986771'
 jobs:
   build-uwp:
-    runs-on: windows-latest
+    # VS 2022: its image has the UWP workload (v143 UWP build tools, store CRT libs, VCLibs framework appx).
+    # windows-latest's newer VS doesn't ship the v143 UWP tools SDL's UWP project needs.
+    runs-on: windows-2022
     name: xbox (uwp msix)
     steps:
       # Without the ROM secrets the app is built without the game code (NMR_NO_GAME: launcher only, can't play),
