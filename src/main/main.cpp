@@ -1124,6 +1124,18 @@ int main(int argc, char** argv) {
                     rom_err == recomp::RomValidationError::Good ? "stored" : "rejected", (int)rom_err);
             }
         }
+        // [uwp] The NoMercy drop folders, D:\DevelopmentFiles\NoMercy then \NoMercy on a USB drive (each created with a
+        // "Put game here.txt" note on launch if missing): a ROM put there is copied into LocalState, validated and stored,
+        // the same as the nomercy.z64 above.
+        {
+            const bool need_rom = !recomp::is_rom_valid(game_id);
+            const std::filesystem::path imported_rom = app_folder.parent_path() / "dropfolder_rom.z64";
+            if (nmr_uwp_rom_drop_folders(need_rom, imported_rom.c_str())) {
+                const auto rom_err = recomp::select_rom(imported_rom, game_id);
+                fprintf(stderr, "[uwp] NoMercy drop folder ROM: %s (err=%d)\n",
+                    rom_err == recomp::RomValidationError::Good ? "stored" : "rejected", (int)rom_err);
+            }
+        }
 #endif
         // Launcher menu options. The Mods entry is live: librecomp already calls
         // initialize_mods() + scan_mods() unconditionally from recomp::start

@@ -3,7 +3,8 @@
 <Package
   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
-  IgnorableNamespaces="uap">
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap rescap">
 
   <Identity
     Name="NoMercyRecompiled"
@@ -55,5 +56,8 @@
     <Capability Name="internetClient" />
     <!-- librecomp's live recompiler (mods) writes and runs code at runtime. -->
     <Capability Name="codeGeneration" />
+    <!-- ROMs from D:\DevelopmentFiles\NoMercy and USB drives\NoMercy (main.cpp), and the Load ROM picker. -->
+    <uap:Capability Name="removableStorage" />
+    <rescap:Capability Name="broadFileSystemAccess" />
   </Capabilities>
 </Package>

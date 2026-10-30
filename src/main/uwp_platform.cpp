@@ -5,6 +5,7 @@
 
 #include <cstdio>
 #include <cstdint>
+#include <cwctype>
 #include <filesystem>
 #include <functional>
 #include <list>
@@ -23,6 +24,9 @@
 #include <winrt/Windows.Storage.h>
 #include <winrt/Windows.Storage.Pickers.h>
 #include <winrt/Windows.UI.Core.h>
+
+#include <windows.h>
+#include <fileapifromapp.h>
 
 #include "uwp_platform.h"
 
@@ -126,6 +130,93 @@ extern "C" void nmr_uwp_get_window_size(void*, uint32_t* width, uint32_t* height
     }
     *width = (w > 0) ? uint32_t(w) : 1920u;
     *height = (h > 0) ? uint32_t(h) : 1080u;
+}
+
+// [uwp] ROM drop folders: D:\DevelopmentFiles\NoMercy (next to the other Dev Mode files, reachable from the Device
+// Portal's file explorer) first, then \NoMercy on a USB drive (E: to Z:). The *FromApp file APIs go through the
+// broadFileSystemAccess / removableStorage capabilities (Package.appxmanifest), which the plain CRT doesn't.
+static void nmr_uwp_make_drop_folder(const std::wstring& folder) {
+    if (!CreateDirectoryFromAppW(folder.c_str(), nullptr) && GetLastError() != ERROR_ALREADY_EXISTS) {
+        fprintf(stderr, "[uwp] can't create %ls (err=%lu)\n", folder.c_str(), GetLastError());
+        return;
+    }
+    const std::wstring note_path = folder + L"\\Put game here.txt";
+    HANDLE note = CreateFile2FromAppW(note_path.c_str(), GENERIC_WRITE, 0, CREATE_NEW, nullptr);
+    if (note != INVALID_HANDLE_VALUE) {
+        static const char text[] =
+            "Put game here.\r\n"
+            "\r\n"
+            "Copy your WWF No Mercy (USA, Rev 1) ROM into this NoMercy folder.\r\n"
+            "Any .z64, .n64 or .v64 file works, for example nomercy.z64.\r\n"
+            "Then start WWF No Mercy: Recompiled: it loads the ROM from here automatically.\r\n"
+            "\r\n"
+            "The app looks in D:\\DevelopmentFiles\\NoMercy first, then in a NoMercy folder on a USB drive.\r\n";
+        DWORD written = 0;
+        WriteFile(note, text, sizeof(text) - 1, &written, nullptr);
+        CloseHandle(note);
+        fprintf(stderr, "[uwp] created %ls\n", note_path.c_str());
+    }
+}
+
+// Copies the first .z64/.n64/.v64 in folder to dest_path. Returns true if one was copied.
+static bool nmr_uwp_copy_rom_from(const std::wstring& folder, const wchar_t* dest_path) {
+    WIN32_FIND_DATAW fd{};
+    const std::wstring pattern = folder + L"\\*";
+    HANDLE find = FindFirstFileExFromAppW(pattern.c_str(), FindExInfoBasic, &fd, FindExSearchNameMatch, nullptr, 0);
+    if (find == INVALID_HANDLE_VALUE) {
+        return false;
+    }
+    bool copied = false;
+    do {
+        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+            continue;
+        }
+        std::wstring ext = std::filesystem::path(fd.cFileName).extension().wstring();
+        for (wchar_t& c : ext) c = towlower(c);
+        if (ext != L".z64" && ext != L".n64" && ext != L".v64") {
+            continue;
+        }
+        const std::wstring src = folder + L"\\" + fd.cFileName;
+        if (CopyFileFromAppW(src.c_str(), dest_path, FALSE)) {
+            fprintf(stderr, "[uwp] copied %ls into LocalState\n", src.c_str());
+            copied = true;
+        }
+        else {
+            fprintf(stderr, "[uwp] copying %ls failed (err=%lu)\n", src.c_str(), GetLastError());
+        }
+    } while (!copied && FindNextFileW(find, &fd));
+    FindClose(find);
+    return copied;
+}
+
+extern "C" bool nmr_uwp_rom_drop_folders(bool copy_rom, const wchar_t* dest_path) {
+    std::vector<std::wstring> folders;
+
+    // D:\DevelopmentFiles\NoMercy is always created, with its note.
+    CreateDirectoryFromAppW(L"D:\\DevelopmentFiles", nullptr);
+    folders.push_back(L"D:\\DevelopmentFiles\\NoMercy");
+    nmr_uwp_make_drop_folder(folders.back());
+
+    // USB drives: only drive letters that actually exist get a NoMercy folder and note.
+    for (wchar_t letter = L'E'; letter <= L'Z'; letter++) {
+        const wchar_t root[] = { letter, L':', L'\\', 0 };
+        WIN32_FILE_ATTRIBUTE_DATA attrs{};
+        if (!GetFileAttributesExFromAppW(root, GetFileExInfoStandard, &attrs)) {
+            continue;
+        }
+        folders.push_back(std::wstring{ letter, L':', L'\\' } + L"NoMercy");
+        nmr_uwp_make_drop_folder(folders.back());
+    }
+
+    if (!copy_rom) {
+        return false;
+    }
+    for (const std::wstring& folder : folders) {
+        if (nmr_uwp_copy_rom_from(folder, dest_path)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 namespace recompui::file::uwp {

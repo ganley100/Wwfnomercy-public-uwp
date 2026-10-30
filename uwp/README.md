@@ -72,9 +72,11 @@ Keep `uwp-package\NoMercyRecompiled.pfx` and pass it back with `-Pfx` for later 
    add `Microsoft.VCLibs.x64.14.00.appx` as a dependency. Install.
 3. In Dev Home, highlight the app → **View details** → set **App type** to **Game**. As an "App" it only gets about
    1 GB of memory and part of the GPU. This step is required.
-4. ROM: either launch, pick **Load ROM** and choose `nomercy.z64` from a USB drive, or copy it with the Device Portal's
-   **File explorer** to `LocalAppData\NoMercyRecompiled_…\LocalState\nomercy.z64`. It's validated and stored on the
-   next launch.
+4. ROM: launch the app once. It creates `D:\DevelopmentFiles\NoMercy` (and a `NoMercy` folder on any USB drive that's
+   plugged in), each with a `Put game here.txt` note. Copy your ROM (`.z64`, `.n64` or `.v64`) into one of them, with
+   the Device Portal's **File explorer** for the D: folder, then launch again: it's copied in, validated and stored.
+   `D:\DevelopmentFiles\NoMercy` is checked first. **Load ROM** and
+   `LocalAppData\NoMercyRecompiled_…\LocalState\nomercy.z64` still work too.
 
 Logs (`NoMercyRecompiled.log` = stderr, `NoMercyRecompiled.out.log` = stdout), saves and config are under
 `LocalState\NoMercyRecompiled\` in the same file explorer. Mods go in `LocalState\NoMercyRecompiled\mods\`.
