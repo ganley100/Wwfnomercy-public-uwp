@@ -1,5 +1,7 @@
 # Runs the build for pushes to main and same-repo PRs (secrets available directly).
 # Fork PRs go through validate-external.yml instead.
+# It needs the ROM secrets, so outside jessetbh's repo it only runs when the repository variable
+# NOMERCY_VALIDATE is 'true' (set it once NOMERCY_CI_PAT and NOMERCY_ROM_REPO are added).
 name: validate-internal
 on:
   push:
@@ -10,6 +12,8 @@ on:
     types: [opened, synchronize]
 jobs:
   build:
-    if: github.event_name == 'push' || github.repository == github.event.pull_request.head.repo.full_name
+    if: >-
+      (github.repository_owner == 'jessetbh' || vars.NOMERCY_VALIDATE == 'true') &&
+      (github.event_name == 'push' || github.repository == github.event.pull_request.head.repo.full_name)
     uses: ./.github/workflows/validate.yml
     secrets: inherit
