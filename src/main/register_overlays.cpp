@@ -1,5 +1,9 @@
 #include "ovl_patches.hpp"
+#if defined(NMR_NO_GAME)
+#include "../nogame/nogame_overlays.inl"
+#else
 #include "../../RecompiledFuncs/recomp_overlays.inl"
+#endif
 
 #include "librecomp/overlays.hpp"
 

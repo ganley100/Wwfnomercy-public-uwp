@@ -39,6 +39,11 @@ Optional: `UWP_PFX_BASE64` + `UWP_PFX_PASSWORD` (a code-signing `.pfx` with subj
 build is signed with the same certificate. Without them each run makes a new self-signed certificate, and you have to
 uninstall the old version before installing a new one.
 
+**Without those secrets** the workflow still builds the app, just without the game code (`-DNMR_NO_GAME=ON`, artifact
+`NoMercyRecompiled-Xbox-UWP-NoGame`). That build installs, starts and shows the launcher and settings, so it's the
+way to check that the app runs on the console (renderer, controller, storage). Starting the game shows a message
+instead, because the game code is generated from the ROM.
+
 The `NoMercyRecompiled-Xbox-UWP` artifact holds the `.msix`, its `.cer`, and `Dependencies/Microsoft.VCLibs.x64.14.00.appx`.
 
 ### Locally (Windows)

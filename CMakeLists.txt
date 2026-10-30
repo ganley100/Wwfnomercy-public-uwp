@@ -73,11 +73,21 @@ set(RECOMP_INCLUDES
 )
 
 # --- RecompiledFuncs: the recompiled game ---
+# NMR_NO_GAME builds without the ROM: src/nogame stands in for the generated game code and audio microcode, so the
+# app runs up to the launcher but can't start the game (for checking that it starts on a device, e.g. Xbox).
+option(NMR_NO_GAME "Build without the ROM-generated game code (launcher only; the game can't start)" OFF)
 add_library(RecompiledFuncs STATIC)
 target_compile_options(RecompiledFuncs PRIVATE -Wno-everything)
 target_include_directories(RecompiledFuncs PRIVATE ${RECOMP_INCLUDES})
-file(GLOB FUNC_C_SOURCES ${CMAKE_SOURCE_DIR}/RecompiledFuncs/*.c)
-target_sources(RecompiledFuncs PRIVATE ${FUNC_C_SOURCES})
+if (NMR_NO_GAME)
+    message(WARNING "NMR_NO_GAME: building WITHOUT the game code. The app shows the launcher but cannot play.")
+    add_compile_definitions(NMR_NO_GAME)
+    target_include_directories(RecompiledFuncs PRIVATE ${NMR}/librecomp/include ${NMR}/ultramodern/include)
+    target_sources(RecompiledFuncs PRIVATE ${CMAKE_SOURCE_DIR}/src/nogame/nogame.cpp)
+else()
+    file(GLOB FUNC_C_SOURCES ${CMAKE_SOURCE_DIR}/RecompiledFuncs/*.c)
+    target_sources(RecompiledFuncs PRIVATE ${FUNC_C_SOURCES})
+endif()
 
 # --- [wcw romhack] Functions the post-recompile pipeline repaired (aki-roadmap#29) ---
 # tools/romhack/list_repaired_functions.py writes RecompiledFuncs/repaired_functions.txt; the runtime warns when a
@@ -179,8 +189,10 @@ set(SOURCES
     ${CMAKE_SOURCE_DIR}/src/game/recomp_api.cpp
     ${CMAKE_SOURCE_DIR}/src/game/raytracing.cpp
     ${CMAKE_SOURCE_DIR}/src/ra/ra_client.cpp
-    ${CMAKE_SOURCE_DIR}/rsp/nomercy_audio.cpp
 )
+if (NOT NMR_NO_GAME)
+    list(APPEND SOURCES ${CMAKE_SOURCE_DIR}/rsp/nomercy_audio.cpp)
+endif()
 if (NMR_UWP)
     list(APPEND SOURCES ${CMAKE_SOURCE_DIR}/src/main/uwp_platform.cpp)
 endif()

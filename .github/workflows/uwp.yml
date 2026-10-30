@@ -25,14 +25,19 @@ jobs:
     runs-on: windows-latest
     name: xbox (uwp msix)
     steps:
+      # Without the ROM secrets the app is built without the game code (NMR_NO_GAME: launcher only, can't play),
+      # which is enough to check that it installs, starts and renders on the console.
       - name: Check ROM secrets
+        id: rom
         env:
           NOMERCY_CI_PAT: ${{ secrets.NOMERCY_CI_PAT }}
           NOMERCY_ROM_REPO: ${{ secrets.NOMERCY_ROM_REPO }}
         run: |
-          if (-not $env:NOMERCY_ROM_REPO -or -not $env:NOMERCY_CI_PAT) {
-            Write-Host "::error::Set the NOMERCY_ROM_REPO and NOMERCY_CI_PAT repository secrets (Settings > Secrets and variables > Actions): the build recompiles the game from nomercy.z64 in that private repo. See uwp/README.md."
-            exit 1
+          if ($env:NOMERCY_ROM_REPO -and $env:NOMERCY_CI_PAT) {
+            "available=true" >> $env:GITHUB_OUTPUT
+          } else {
+            "available=false" >> $env:GITHUB_OUTPUT
+            Write-Host "::warning::No ROM secrets (NOMERCY_ROM_REPO, NOMERCY_CI_PAT): building the app WITHOUT the game code (launcher only)."
           }
       - name: Checkout
         uses: actions/checkout@v4
@@ -47,14 +52,17 @@ jobs:
       - name: Configure Developer Command Prompt
         uses: ilammy/msvc-dev-cmd@v1
       - name: Get ROM
+        if: steps.rom.outputs.available == 'true'
         uses: actions/checkout@v4
         with:
           repository: ${{ secrets.NOMERCY_ROM_REPO }}
           token: ${{ secrets.NOMERCY_CI_PAT }}
           path: nomercy-secret
       - name: Prepare Build
+        if: steps.rom.outputs.available == 'true'
         run: copy .\nomercy-secret\nomercy.z64 .\
       - name: Build N64Recomp & RSPRecomp
+        if: steps.rom.outputs.available == 'true'
         run: |
           git clone https://github.com/N64Recomp/N64Recomp.git --recurse-submodules N64RecompSource
           cd N64RecompSource
@@ -65,12 +73,14 @@ jobs:
           cp cmake-build/N64Recomp.exe ..
           cp cmake-build/RSPRecomp.exe ..
       - name: Run N64Recomp & RSPRecomp
+        if: steps.rom.outputs.available == 'true'
         run: |
           ./N64Recomp.exe nomercy.toml
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ./RSPRecomp.exe rsp/nomercy_audio.toml
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Post-regen fixup pipeline (mandatory — see BUILDING.md §4)
+        if: steps.rom.outputs.available == 'true'
         run: |
           foreach ($step in 'fix_stumps', 'fix_switches', 'fix_jraddend', 'fix_backbranches', 'fix_selfentry', 'readd_hand_edits', 'audit_coresidency') {
             python "tools/$step.py"
@@ -84,8 +94,9 @@ jobs:
         run: |
           # Remove Chocolatey LLVM from PATH so VS's clang-cl is used for the port.
           $env:PATH = ($env:PATH -split ';' | Where-Object { $_ -ne 'C:\Program Files\LLVM\bin' }) -join ';'
+          $noGame = if ('${{ steps.rom.outputs.available }}' -eq 'true') { 'OFF' } else { 'ON' }
           cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=clang-cl -DCMAKE_C_COMPILER=clang-cl -DCMAKE_MAKE_PROGRAM=ninja -G Ninja `
-            -DNMR_UWP=ON -DNMR_UWP_SDL2_DIR="$PWD/build-sdl2-uwp" -S . -B build-uwp
+            -DNMR_UWP=ON -DNMR_UWP_SDL2_DIR="$PWD/build-sdl2-uwp" "-DNMR_NO_GAME=$noGame" -S . -B build-uwp
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cmake --build build-uwp --config Release --target NoMercyRecompiled
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -107,7 +118,7 @@ jobs:
       - name: Archive MSIX
         uses: actions/upload-artifact@v4
         with:
-          name: NoMercyRecompiled-Xbox-UWP
+          name: NoMercyRecompiled-Xbox-UWP${{ steps.rom.outputs.available != 'true' && '-NoGame' || '' }}
           path: |
             uwp-package/*.msix
             uwp-package/*.cer
