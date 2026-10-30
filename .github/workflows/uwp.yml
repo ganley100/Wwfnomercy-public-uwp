@@ -25,6 +25,15 @@ jobs:
     runs-on: windows-latest
     name: xbox (uwp msix)
     steps:
+      - name: Check ROM secrets
+        env:
+          NOMERCY_CI_PAT: ${{ secrets.NOMERCY_CI_PAT }}
+          NOMERCY_ROM_REPO: ${{ secrets.NOMERCY_ROM_REPO }}
+        run: |
+          if (-not $env:NOMERCY_ROM_REPO -or -not $env:NOMERCY_CI_PAT) {
+            Write-Host "::error::Set the NOMERCY_ROM_REPO and NOMERCY_CI_PAT repository secrets (Settings > Secrets and variables > Actions): the build recompiles the game from nomercy.z64 in that private repo. See uwp/README.md."
+            exit 1
+          }
       - name: Checkout
         uses: actions/checkout@v4
         with:
